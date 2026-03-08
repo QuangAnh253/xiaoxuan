@@ -182,6 +182,11 @@ body{
   position:relative;overflow:hidden;
   margin:0 auto;
 }
+#btnStart[disabled]{
+  opacity:.58;
+  cursor:not-allowed;
+  filter:grayscale(.2);
+}
 #btnStart::after{
   content:'';position:absolute;top:0;left:-60%;
   width:50%;height:100%;
@@ -305,6 +310,28 @@ body{
   animation:tpH 2.5s ease-in-out infinite;
 }
 @keyframes tpH{0%,100%{opacity:.35;transform:translateY(0)}50%{opacity:.85;transform:translateY(-5px)}}
+
+/* Keep interaction hint visible above Safari iOS bottom bars */
+@media (max-width: 430px), (max-height: 760px){
+  #screen2{
+    padding:2.4rem 1rem 6rem;
+    gap:2.4rem;
+  }
+  #tapHint{
+    position:fixed;
+    left:50%;
+    bottom:calc(env(safe-area-inset-bottom, 0px) + 3.75rem);
+    transform:translateX(-50%);
+    z-index:360;
+    background:rgba(18,4,28,.72);
+    border:1px solid rgba(201,168,232,.24);
+    border-radius:999px;
+    padding:.4rem .9rem;
+    backdrop-filter:blur(8px);
+    pointer-events:none;
+    white-space:nowrap;
+  }
+}
 
 /* ─── DIVIDER ─── */
 .dvd{
@@ -563,11 +590,28 @@ const C = {
 /* ════ STATE ════ */
 let s2Active=false, musicOn=false, fTaps=0, shinDone=false;
 let gyroX=0, lastTrail=0, ptrDown=false;
+let pendingMusicStart=false, scReady=false;
 
 /* ════ HELPERS ════ */
 const $=id=>document.getElementById(id);
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function rand(a,b){return a+Math.random()*(b-a)}
+
+function startMusicFromGesture(){
+  if(!scWidget || !scReady){
+    pendingMusicStart=true;
+    return;
+  }
+  scWidget.play();
+  // Safari iOS can ignore first async play; verify and retry once.
+  setTimeout(()=>{
+    if(!scWidget)return;
+    scWidget.isPaused(paused=>{ if(paused) scWidget.play(); });
+  },260);
+  musicOn=true;
+  pendingMusicStart=false;
+  mBtn.classList.add('play');
+}
 
 /* ════ AUDIO — SoundCloud Widget API ════ */
 const mBtn=$('musicBtn');
@@ -579,7 +623,13 @@ let scWidget=null;
   s.onload=()=>{
     scWidget=SC.Widget($('scFrame'));
     scWidget.bind(SC.Widget.Events.READY,()=>{
+      scReady=true;
       scWidget.setVolume(18); // 0–100
+      btnS.disabled=false;
+      btnS.textContent=startBtnLabel;
+      if(pendingMusicStart){
+        startMusicFromGesture();
+      }
     });
     scWidget.bind(SC.Widget.Events.FINISH,()=>{
       // loop manually
@@ -590,22 +640,19 @@ let scWidget=null;
   document.head.appendChild(s);
 })();
 
-function tryPlay(){
-  if(!scWidget){musicOn=false;return}
-  scWidget.play();
-  musicOn=true;mBtn.classList.add('play');
-}
 mBtn.addEventListener('click',()=>{
-  if(!scWidget)return;
+  if(!scWidget || !scReady)return;
   if(musicOn){
     scWidget.pause();musicOn=false;mBtn.classList.remove('play');
   }else{
-    scWidget.play();musicOn=true;mBtn.classList.add('play');
+    startMusicFromGesture();
   }
 });
 
 /* ════ SCREEN 1 TYPING ELEMENTS — declared early ════ */
 const typedEl=$('typedText'), curEl=$('cursor'), btnS=$('btnStart');
+const startBtnLabel='点一下看看 ✨';
+const startBtnLoading='点一下看看（音乐加载中...）';
 
 /* ════ CINEMATIC OPENING ════ */
 (function initOpening(){
@@ -803,13 +850,19 @@ async function typeLines(lines){
   await sleep(480);
   curEl.style.display='none';
   btnS.style.display='inline-block';
+  btnS.disabled=!scReady;
+  btnS.textContent=scReady?startBtnLabel:startBtnLoading;
   btnS.offsetWidth;
   btnS.style.animation='btnIn .6s cubic-bezier(.34,1.56,.64,1) both';
 }
 
 /* ════ TRANSITION S1 → S2 ════ */
 btnS.addEventListener('click',()=>{
-  tryPlay();
+  if(!scReady){
+    pendingMusicStart=true;
+    return;
+  }
+  startMusicFromGesture();
   const s1=$('screen1'),s2=$('screen2');
   s1.style.transition='opacity .7s';s1.style.opacity='0';
   // light flash
@@ -1010,14 +1063,25 @@ function triggerFireworks(){
 /* ════ SHIN-CHAN ════ */
 function showShin(){
   const p=$('shinPopup');p.style.display='block';
-  setTimeout(()=>{if(p.style.display!=='none')closeShin()},7500);
+  setTimeout(()=>{if(p.style.display!=='none')closeShin(false)},7500);
 }
-$('shinClose').addEventListener('click',closeShin);
-function closeShin(){
+$('shinClose').addEventListener('click',()=>closeShin(true));
+function closeShin(scrollToEnd=false){
   const p=$('shinPopup');
   p.style.transition='opacity .5s,transform .5s';
   p.style.opacity='0';p.style.transform='translateX(-50%) translateY(18px) scale(.9)';
-  setTimeout(()=>{p.style.display='none';p.style.opacity='1';p.style.transform=''},550);
+  setTimeout(()=>{
+    p.style.display='none';
+    p.style.opacity='1';
+    p.style.transform='';
+    if(scrollToEnd){
+      const ending=$('ending');
+      if(ending) ending.scrollIntoView({behavior:'smooth',block:'end'});
+      const se=document.scrollingElement||document.documentElement;
+      se.scrollTo({top:se.scrollHeight,behavior:'smooth'});
+      setTimeout(()=>se.scrollTo({top:se.scrollHeight,behavior:'smooth'}),350);
+    }
+  },550);
 }
 </script>
 </body>
