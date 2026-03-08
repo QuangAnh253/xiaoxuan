@@ -609,23 +609,39 @@ function startMusicFromGesture(){
   
   // Try to play immediately - Safari requires this in same event loop
   try {
-    console.log('Calling scWidget.play()');
+    console.log('Calling scWidget.seekTo(0) then play()');
+    // CRITICAL: seekTo first to ensure widget is ready and at start position
+    scWidget.seekTo(0);
     scWidget.play();
     musicOn=true;
     mBtn.classList.add('play');
-    console.log('Music play command sent, button updated');
+    console.log('Music play commands sent, button updated');
     
-    // Verify after short delay and retry if needed
+    // Multiple retries to ensure playback starts
     setTimeout(()=>{
       if(!scWidget)return;
       scWidget.isPaused(paused=>{ 
-        console.log('Music paused status check:', paused);
+        console.log('[Retry 1 - 500ms] Music paused status:', paused);
         if(paused) {
-          console.log('Still paused - retrying play');
+          console.log('Still paused - retrying seekTo + play');
+          scWidget.seekTo(0);
           scWidget.play();
         }
       });
-    },400);
+    },500);
+    
+    // Second retry
+    setTimeout(()=>{
+      if(!scWidget)return;
+      scWidget.isPaused(paused=>{ 
+        console.log('[Retry 2 - 1000ms] Music paused status:', paused);
+        if(paused) {
+          console.log('Still paused - final retry');
+          scWidget.seekTo(0);
+          scWidget.play();
+        }
+      });
+    },1000);
     
     return true;
   } catch(e) {
@@ -648,16 +664,30 @@ let scWidget=null;
     scWidget.bind(SC.Widget.Events.READY,()=>{
       console.log('SoundCloud Widget READY event fired');
       scReady=true;
-      scWidget.setVolume(18); // 0–100
+      scWidget.setVolume(35); // 0–100 - Increased volume for better audibility
       
       // If user clicked button before widget was ready, start music now
       if(pendingMusicStart){
         console.log('pendingMusicStart is true - starting music now');
         pendingMusicStart=false;
+        // Seek to start first to ensure widget is properly initialized
+        scWidget.seekTo(0);
         scWidget.play();
         musicOn=true;
         mBtn.classList.add('play');
         console.log('Music started from pending flag');
+        
+        // Verify it actually started
+        setTimeout(()=>{
+          if(!scWidget)return;
+          scWidget.isPaused(p=>{
+            console.log('Post-pending play check - paused:', p);
+            if(p){
+              scWidget.seekTo(0);
+              scWidget.play();
+            }
+          });
+        },600);
       }
     });
     scWidget.bind(SC.Widget.Events.FINISH,()=>{
