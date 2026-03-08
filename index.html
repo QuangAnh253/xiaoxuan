@@ -478,12 +478,7 @@ body{
 </head>
 <body>
 
-<!-- 起风了 SoundCloud (hidden iframe, controlled via SC Widget API) -->
-<div id="scWrapper" style="position:fixed;left:-9999px;bottom:-9999px;width:1px;height:1px;overflow:hidden;pointer-events:none;z-index:-1;">
-  <iframe id="scFrame" width="100%" height="166" scrolling="no" frameborder="no" allow="autoplay; encrypted-media"
-    src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/953024785&color=%23e891b4&auto_play=false&hide_related=true&show_comments=false&show_user=false&show_reposts=false&show_teaser=false">
-  </iframe>
-</div>
+<audio id="bgAudio" preload="auto" playsinline webkit-playsinline loop src="qifengle.mp3"></audio>
 
 <button id="musicBtn" aria-label="音乐"><span id="mNote">🎵</span></button>
 
@@ -590,7 +585,6 @@ const C = {
 /* ════ STATE ════ */
 let s2Active=false, musicOn=false, fTaps=0, shinDone=false;
 let gyroX=0, lastTrail=0, ptrDown=false;
-let pendingMusicStart=false, scReady=false;
 
 /* ════ HELPERS ════ */
 const $=id=>document.getElementById(id);
@@ -598,126 +592,52 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function rand(a,b){return a+Math.random()*(b-a)}
 
 function startMusicFromGesture(){
-  // Critical: play() must be called IMMEDIATELY in user gesture for Safari
-  console.log('startMusicFromGesture called - scWidget:', !!scWidget);
-  
-  if(!scWidget){
-    console.log('Widget not ready - setting pendingMusicStart flag');
-    pendingMusicStart=true;
-    return false;
-  }
-  
-  // Try to play immediately - Safari requires this in same event loop
-  try {
-    console.log('Calling scWidget.seekTo(0) then play()');
-    // CRITICAL: seekTo first to ensure widget is ready and at start position
-    scWidget.seekTo(0);
-    scWidget.play();
-    musicOn=true;
-    mBtn.classList.add('play');
-    console.log('Music play commands sent, button updated');
-    
-    // Multiple retries to ensure playback starts
-    setTimeout(()=>{
-      if(!scWidget)return;
-      scWidget.isPaused(paused=>{ 
-        console.log('[Retry 1 - 500ms] Music paused status:', paused);
-        if(paused) {
-          console.log('Still paused - retrying seekTo + play');
-          scWidget.seekTo(0);
-          scWidget.play();
-        }
-      });
-    },500);
-    
-    // Second retry
-    setTimeout(()=>{
-      if(!scWidget)return;
-      scWidget.isPaused(paused=>{ 
-        console.log('[Retry 2 - 1000ms] Music paused status:', paused);
-        if(paused) {
-          console.log('Still paused - final retry');
-          scWidget.seekTo(0);
-          scWidget.play();
-        }
-      });
-    },1000);
-    
+  bgAudio.currentTime=0;
+  const p=bgAudio.play();
+  if(p&&typeof p.then==='function'){
+    p.then(()=>{
+      musicOn=true;
+      mBtn.classList.add('play');
+    }).catch(()=>{
+      musicOn=false;
+      mBtn.classList.remove('play');
+    });
     return true;
-  } catch(e) {
-    console.warn('Music play failed:', e);
-    pendingMusicStart=true;
-    return false;
   }
+  musicOn=true;
+  mBtn.classList.add('play');
+  return true;
 }
 
-/* ════ AUDIO — SoundCloud Widget API ════ */
+/* ════ AUDIO — HTML5 <audio> ════ */
 const mBtn=$('musicBtn');
-let scWidget=null;
-// Load SC Widget API script
-(function(){
-  const s=document.createElement('script');
-  s.src='https://w.soundcloud.com/player/api.js';
-  s.onload=()=>{
-    console.log('SoundCloud Widget API loaded');
-    scWidget=SC.Widget($('scFrame'));
-    scWidget.bind(SC.Widget.Events.READY,()=>{
-      console.log('SoundCloud Widget READY event fired');
-      scReady=true;
-      scWidget.setVolume(35); // 0–100 - Increased volume for better audibility
-      
-      // If user clicked button before widget was ready, start music now
-      if(pendingMusicStart){
-        console.log('pendingMusicStart is true - starting music now');
-        pendingMusicStart=false;
-        // Seek to start first to ensure widget is properly initialized
-        scWidget.seekTo(0);
-        scWidget.play();
-        musicOn=true;
-        mBtn.classList.add('play');
-        console.log('Music started from pending flag');
-        
-        // Verify it actually started
-        setTimeout(()=>{
-          if(!scWidget)return;
-          scWidget.isPaused(p=>{
-            console.log('Post-pending play check - paused:', p);
-            if(p){
-              scWidget.seekTo(0);
-              scWidget.play();
-            }
-          });
-        },600);
-      }
-    });
-    scWidget.bind(SC.Widget.Events.FINISH,()=>{
-      // loop manually
-      scWidget.seekTo(0);
-      scWidget.play();
-    });
-  };
-  document.head.appendChild(s);
-})();
+const bgAudio=$('bgAudio');
+bgAudio.volume=0.75;
+
+bgAudio.addEventListener('play',()=>{
+  musicOn=true;
+  mBtn.classList.add('play');
+});
+
+bgAudio.addEventListener('pause',()=>{
+  musicOn=false;
+  mBtn.classList.remove('play');
+});
 
 mBtn.addEventListener('click',()=>{
-  if(!scWidget){
-    pendingMusicStart=true;
-    return;
-  }
-  
   if(musicOn){
-    scWidget.pause();
-    musicOn=false;
-    mBtn.classList.remove('play');
+    bgAudio.pause();
   }else{
-    startMusicFromGesture();
+    const p=bgAudio.play();
+    if(p&&typeof p.catch==='function'){
+      p.catch(()=>{});
+    }
   }
 });
 
 /* ════ SCREEN 1 TYPING ELEMENTS — declared early ════ */
 const typedEl=$('typedText'), curEl=$('cursor'), btnS=$('btnStart');
 const startBtnLabel='点一下看看 ✨';
-const startBtnLoading='点一下看看（音乐加载中...）';
 
 /* ════ CINEMATIC OPENING ════ */
 (function initOpening(){
@@ -924,13 +844,8 @@ async function typeLines(lines){
 
 /* ════ TRANSITION S1 → S2 ════ */
 btnS.addEventListener('click',()=>{
-  // CRITICAL: Start music immediately in click handler for Safari
-  console.log('Button clicked - attempting to start music');
-  console.log('scWidget exists:', !!scWidget, 'scReady:', scReady);
-  
-  // Always try to start music, even if widget not ready
-  const started = startMusicFromGesture();
-  console.log('Music start attempt:', started ? 'success' : 'deferred');
+  // Safari accepts direct HTML5 audio play in this user gesture handler.
+  startMusicFromGesture();
   
   const s1=$('screen1'),s2=$('screen2');
   s1.style.transition='opacity .7s';s1.style.opacity='0';
