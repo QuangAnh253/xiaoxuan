@@ -599,28 +599,33 @@ function rand(a,b){return a+Math.random()*(b-a)}
 
 function startMusicFromGesture(){
   // Critical: play() must be called IMMEDIATELY in user gesture for Safari
+  console.log('startMusicFromGesture called - scWidget:', !!scWidget);
+  
   if(!scWidget){
+    console.log('Widget not ready - setting pendingMusicStart flag');
     pendingMusicStart=true;
     return false;
   }
   
-  // Try to play immediately, even if not fully ready - Safari requires this
+  // Try to play immediately - Safari requires this in same event loop
   try {
+    console.log('Calling scWidget.play()');
     scWidget.play();
     musicOn=true;
     mBtn.classList.add('play');
+    console.log('Music play command sent, button updated');
     
-    // Verify it actually started (for safety)
+    // Verify after short delay and retry if needed
     setTimeout(()=>{
       if(!scWidget)return;
       scWidget.isPaused(paused=>{ 
+        console.log('Music paused status check:', paused);
         if(paused) {
-          // Try one more time
+          console.log('Still paused - retrying play');
           scWidget.play();
-          musicOn=!paused;
         }
       });
-    },300);
+    },400);
     
     return true;
   } catch(e) {
@@ -638,11 +643,22 @@ let scWidget=null;
   const s=document.createElement('script');
   s.src='https://w.soundcloud.com/player/api.js';
   s.onload=()=>{
+    console.log('SoundCloud Widget API loaded');
     scWidget=SC.Widget($('scFrame'));
     scWidget.bind(SC.Widget.Events.READY,()=>{
+      console.log('SoundCloud Widget READY event fired');
       scReady=true;
       scWidget.setVolume(18); // 0–100
-      // Don't auto-play here - wait for user gesture
+      
+      // If user clicked button before widget was ready, start music now
+      if(pendingMusicStart){
+        console.log('pendingMusicStart is true - starting music now');
+        pendingMusicStart=false;
+        scWidget.play();
+        musicOn=true;
+        mBtn.classList.add('play');
+        console.log('Music started from pending flag');
+      }
     });
     scWidget.bind(SC.Widget.Events.FINISH,()=>{
       // loop manually
@@ -654,9 +670,15 @@ let scWidget=null;
 })();
 
 mBtn.addEventListener('click',()=>{
-  if(!scWidget || !scReady)return;
+  if(!scWidget){
+    pendingMusicStart=true;
+    return;
+  }
+  
   if(musicOn){
-    scWidget.pause();musicOn=false;mBtn.classList.remove('play');
+    scWidget.pause();
+    musicOn=false;
+    mBtn.classList.remove('play');
   }else{
     startMusicFromGesture();
   }
@@ -873,8 +895,12 @@ async function typeLines(lines){
 /* ════ TRANSITION S1 → S2 ════ */
 btnS.addEventListener('click',()=>{
   // CRITICAL: Start music immediately in click handler for Safari
-  // Don't wait or check - just try to play
-  startMusicFromGesture();
+  console.log('Button clicked - attempting to start music');
+  console.log('scWidget exists:', !!scWidget, 'scReady:', scReady);
+  
+  // Always try to start music, even if widget not ready
+  const started = startMusicFromGesture();
+  console.log('Music start attempt:', started ? 'success' : 'deferred');
   
   const s1=$('screen1'),s2=$('screen2');
   s1.style.transition='opacity .7s';s1.style.opacity='0';
