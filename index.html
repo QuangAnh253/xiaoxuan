@@ -598,19 +598,36 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function rand(a,b){return a+Math.random()*(b-a)}
 
 function startMusicFromGesture(){
-  if(!scWidget || !scReady){
+  // Critical: play() must be called IMMEDIATELY in user gesture for Safari
+  if(!scWidget){
     pendingMusicStart=true;
-    return;
+    return false;
   }
-  scWidget.play();
-  // Safari iOS can ignore first async play; verify and retry once.
-  setTimeout(()=>{
-    if(!scWidget)return;
-    scWidget.isPaused(paused=>{ if(paused) scWidget.play(); });
-  },260);
-  musicOn=true;
-  pendingMusicStart=false;
-  mBtn.classList.add('play');
+  
+  // Try to play immediately, even if not fully ready - Safari requires this
+  try {
+    scWidget.play();
+    musicOn=true;
+    mBtn.classList.add('play');
+    
+    // Verify it actually started (for safety)
+    setTimeout(()=>{
+      if(!scWidget)return;
+      scWidget.isPaused(paused=>{ 
+        if(paused) {
+          // Try one more time
+          scWidget.play();
+          musicOn=!paused;
+        }
+      });
+    },300);
+    
+    return true;
+  } catch(e) {
+    console.warn('Music play failed:', e);
+    pendingMusicStart=true;
+    return false;
+  }
 }
 
 /* ════ AUDIO — SoundCloud Widget API ════ */
@@ -625,11 +642,7 @@ let scWidget=null;
     scWidget.bind(SC.Widget.Events.READY,()=>{
       scReady=true;
       scWidget.setVolume(18); // 0–100
-      btnS.disabled=false;
-      btnS.textContent=startBtnLabel;
-      if(pendingMusicStart){
-        startMusicFromGesture();
-      }
+      // Don't auto-play here - wait for user gesture
     });
     scWidget.bind(SC.Widget.Events.FINISH,()=>{
       // loop manually
@@ -850,19 +863,19 @@ async function typeLines(lines){
   await sleep(480);
   curEl.style.display='none';
   btnS.style.display='inline-block';
-  btnS.disabled=!scReady;
-  btnS.textContent=scReady?startBtnLabel:startBtnLoading;
+  // Always enable button - music will start on click regardless of load status
+  btnS.disabled=false;
+  btnS.textContent=startBtnLabel;
   btnS.offsetWidth;
   btnS.style.animation='btnIn .6s cubic-bezier(.34,1.56,.64,1) both';
 }
 
 /* ════ TRANSITION S1 → S2 ════ */
 btnS.addEventListener('click',()=>{
-  if(!scReady){
-    pendingMusicStart=true;
-    return;
-  }
+  // CRITICAL: Start music immediately in click handler for Safari
+  // Don't wait or check - just try to play
   startMusicFromGesture();
+  
   const s1=$('screen1'),s2=$('screen2');
   s1.style.transition='opacity .7s';s1.style.opacity='0';
   // light flash
